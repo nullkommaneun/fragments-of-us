@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <title>Echoes — Spielbares Grundgerüst</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+  <style>
+    html, body {margin:0; height:100%; background:#0b0d12; overflow:hidden; touch-action:none;}
+    #hud {
+      position:fixed; inset:0; pointer-events:none; color:#dfe7ff; font:600 14px system-ui, -apple-system, Segoe UI, Roboto, Arial;
+      display:flex; flex-direction:column; justify-content:space-between; padding:env(safe-area-inset-top,12px) 12px 12px 12px;
+    }
+    #topbar {display:flex; gap:12px; align-items:center; justify-content:space-between; opacity:.9;}
+    .pill {background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.12); border-radius:999px; padding:6px 10px; backdrop-filter:blur(6px);}
+    #log {max-height:36vh; overflow:auto; line-height:1.3; padding:8px 10px; border-radius:10px; background:rgba(10,14,20,.5); border:1px solid rgba(255,255,255,.08); }
+    #centerHint {position:fixed; inset:auto 0 30%; display:flex; justify-content:center; pointer-events:none;}
+    #centerHint .card {color:#cfe3ff; background:rgba(20,28,40,.7); border:1px solid rgba(255,255,255,.12); padding:10px 14px; border-radius:12px; backdrop-filter:blur(6px);}
+    /* Joystick */
+    #sticks {position:fixed; inset:0; display:flex; justify-content:space-between; align-items:flex-end; padding:16px; pointer-events:none;}
+    .stickZone {width:42%; height:55%; pointer-events:auto;}
+    #leftZone {align-self:flex-end;}
+    #rightZone {align-self:flex-end;}
+    .base, .knob {
+      position:absolute; border-radius:999px; transform:translate(-50%,-50%);
+      transition:opacity .15s;
+    }
+    .base {width:120px; height:120px; left:100px; bottom:100px; background:radial-gradient(ellipse at center, rgba(255,255,255,.10), rgba(255,255,255,.03)); border:1px solid rgba(255,255,255,.12);}
+    .knob {width:64px; height:64px; left:100px; bottom:100px; background:radial-gradient(circle at 50% 45%, rgba(255,255,255,.35), rgba(255,255,255,.12)); border:1px solid rgba(255,255,255,.20);}
+    /* Small screens: shrink joystick */
+    @media (max-width:420px) {
+      .base {width:100px; height:100px; left:84px; bottom:84px;}
+      .knob {width:56px; height:56px; left:84px; bottom:84px;}
+    }
+    a {color:#a7c7ff; text-decoration:none;}
+  </style>
+</head>
+<body>
+  <div id="hud">
+    <div id="topbar">
+      <div class="pill">Fragmente: <span id="score">0</span>/<span id="total">0</span></div>
+      <div class="pill" id="fps">– fps</div>
+    </div>
+    <div id="log" aria-live="polite"></div>
+  </div>
+
+  <div id="centerHint"><div class="card">Tippe/ziehe links zum Laufen • Wische rechts zum Umsehen</div></div>
+
+  <div id="sticks">
+    <div id="leftZone" class="stickZone">
+      <div id="lBase" class="base"></div>
+      <div id="lKnob" class="knob"></div>
+    </div>
+    <div id="rightZone" class="stickZone"></div>
+  </div>
+
+  <script type="module">
+    import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
+
+    // ---------- Renderer / Scene ----------
+    const renderer = new THREE.WebGLRenderer({antialias:false, alpha:false, powerPreference:"high-performance"});
+    document.body.appendChild(renderer.domElement);
+    const DPR_CAP = 1.75; // Mobile: Xiaomi 13T Pro -> begrenzen für FPS & Akku
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setClearColor(0x090c12, 1);
+
+    const scene = new THREE.Scene();
+    // dezentes Nebel-Grading für Tiefe
+    scene.fog = new THREE.Fog(0x0b0d12, 25, 90);
+
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 200);
+
+    // ---------- Player (Yaw/Pitch-Rig) ----------
+    const player = new THREE.Object3D();
+    const yaw = new THREE.Object3D();
+    const pitch = new THREE.Object3D();
+    player.add(yaw);
+    yaw.add(pitch);
+    pitch.add(camera);
+    camera.position.set(0, 1.6, 0); // Augenhöhe
+    scene.add(player);
+
+    // Einfache Spieler-Marker-Kapsel
+    const capsuleGeo = new THREE.CapsuleGeometry(0.3, 1.0, 8, 16);
+    const capsuleMat = new THREE.MeshStandardMaterial({color:0x6aa7ff, metalness:0.1, roughness:0.6});
+    const avatar = new THREE.Mesh(capsuleGeo, capsuleMat);
+    avatar.position.set(0, 1.0, 0);
+    player.add(avatar);
+
+    // ---------- Welt (Boden + Licht) ----------
+    const hemi = new THREE.HemisphereLight(0xcfe8ff, 0x0a0d12, 0.8);
+    scene.add(hemi);
+
+    const dir = new THREE.DirectionalLight(0xffffff, 0.7);
+    dir.position.set(6, 10, 4);
+    dir.castShadow = false;
+    scene.add(dir);
+
+    const groundGeo = new THREE.CircleGeometry(80, 64);
+    groundGeo.rotateX(-Math.PI/2);
+    const groundMat = new THREE.MeshStandardMaterial({color:0x10161f, roughness:0.9, metalness:0.0});
+    const ground = new THREE.Mesh(groundGeo, groundMat);
+    ground.receiveShadow = true;
+    scene.add(ground);
+
+    // Randlichter zur Orientierung
+    const ringGeo = new THREE.TorusGeometry(60, 0.04, 8, 256);
+    ringGeo.rotateX(Math.PI/2);
+    const ringMat = new THREE.MeshBasicMaterial({color:0x1f6fff});
+    const ring = new THREE.Mesh(ringGeo, ringMat); ring.position.y = 0.02;
+    scene.add(ring);
+
+    // ---------- „Fragmente“ (sammelbare Texttafeln) ----------
+    // Platzhalter-Texte — später leicht durch anonymisierte Snippets ersetzbar
+    const FRAGMENTS = [
+      "„Mir fehlt die Zweisamkeit.“",
+      "„Die Wochenenden sind schwer.\"",
+      "„Einfach mal wortlos gehalten werden.“",
+      "„Ich kämpfe – jeden Tag.“",
+      "„Manchmal tut Stille mehr weh als Lärm.“",
+      "„Ein Spaziergang. Ohne Erwartungen.“",
+      "„Kaffee, Couch, Ruhe – reicht.“",
+      "„Ich lerne nach vorn zu schauen.“"
+    ];
+
+    // kleines Canvas-Label als Textur
+    function makeLabelTexture(text) {
+      const pad = 16, w = 512, h = 128;
+      const cnv = document.createElement('canvas');
+      cnv.width = w; cnv.height = h;
+      const ctx = cnv.getContext('2d');
+      ctx.fillStyle = '#0f1624'; ctx.fillRect(0,0,w,h);
+      ctx.strokeStyle = 'rgba(255,255,255,.15)'; ctx.strokeRect(0.5,0.5,w-1,h-1);
+      ctx.font = '700 28px system-ui, Segoe UI, Roboto, Arial';
+      ctx.fillStyle = '#dfe7ff';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      wrapTextCentered(ctx, text, w/2, h/2, w - pad*2, 34);
+      const tex = new THREE.CanvasTexture(cnv);
+      tex.anisotropy = 2;
+      return tex;
+    }
+    function wrapTextCentered(ctx, text, cx, cy, maxWidth, lineHeight) {
+      const words = text.split(' ');
+      const lines = [];
+      let line = '';
+      for (const w of words) {
+        const test = line ? line + ' ' + w : w;
+        if (ctx.measureText(test).width < maxWidth) line = test;
+        else { lines.push(line); line = w; }
+      }
+      if (line) lines.push(line);
+      const totalH = lines.length * lineHeight;
+      let y = cy - totalH/2 + lineHeight/2;
+      for (const ln of lines) { ctx.fillText(ln, cx, y); y += lineHeight; }
+    }
+
+    function createFragment(text) {
+      const g = new THREE.Group();
+      // Texttafel
+      const tex = makeLabelTexture(text);
+      const plane = new THREE.Mesh(
+        new THREE.PlaneGeometry(2.1, 0.6),
+        new THREE.MeshBasicMaterial({map:tex, transparent:true})
+      );
+      plane.position.y = 1.4;
+      g.add(plane);
+      // kleiner „Glüheffekt“
+      const gem = new THREE.Mesh(new THREE.TorusKnotGeometry(0.15, 0.045, 60, 10), new THREE.MeshStandardMaterial({color:0x9bd1ff, emissive:0x123a60, metalness:0.3, roughness:0.4}));
+      gem.position.y = 0.8;
+      g.add(gem);
+      g.userData = {text, plane, gem, collected:false, yPhase:Math.random()*Math.PI*2};
+      return g;
+    }
+
+    const fragments = [];
+    const radius = 18;
+    for (let i=0;i<FRAGMENTS.length;i++){
+      const f = createFragment(FRAGMENTS[i]);
+      const angle = i/FRAGMENTS.length * Math.PI*2;
+      const r = radius + (Math.random()*6-3);
+      f.position.set(Math.cos(angle)*r, 0, Math.sin(angle)*r);
+      scene.add(f);
+      fragments.push(f);
+    }
+    document.getElementById('total').textContent = fragments.length.toString();
+
+    // ---------- Steuerung (Joystick links, Blick rechts) ----------
+    const leftZone = document.getElementById('leftZone');
+    const rightZone = document.getElementById('rightZone');
+    const lBase = document.getElementById('lBase');
+    const lKnob = document.getElementById('lKnob');
+
+    let joyActive = false, joyId = -1, joyCx = 0, joyCy = 0, joyDx = 0, joyDy = 0;
+    const JOY_R = parseFloat(getComputedStyle(lBase).width) / 2;
+
+    leftZone.addEventListener('pointerdown', e => {
+      if (joyActive) return;
+      joyActive = true; joyId = e.pointerId;
+      const r = leftZone.getBoundingClientRect();
+      joyCx = e.clientX; joyCy = e.clientY;
+      lBase.style.left = joyCx + 'px'; lBase.style.top = joyCy + 'px';
+      lKnob.style.left = joyCx + 'px'; lKnob.style.top = joyCy + 'px';
+      leftZone.setPointerCapture(joyId);
+    }, {passive:false});
+    leftZone.addEventListener('pointermove', e => {
+      if (!joyActive || e.pointerId !== joyId) return;
+      joyDx = e.clientX - joyCx; joyDy = e.clientY - joyCy;
+      const len = Math.hypot(joyDx, joyDy);
+      const clamped = Math.min(len, JOY_R);
+      const nx = (len>0 ? joyDx/len : 0) * clamped;
+      const ny = (len>0 ? joyDy/len : 0) * clamped;
+      lKnob.style.left = (joyCx + nx) + 'px';
+      lKnob.style.top  = (joyCy + ny) + 'px';
+    }, {passive:false});
+    function endJoy(e){
+      if (!joyActive || (e && e.pointerId !== joyId)) return;
+      joyActive = false; joyId = -1; joyDx = joyDy = 0;
+      lBase.style.left = lKnob.style.left = ''; // Snap zurück dank CSS Defaults
+      lBase.style.top  = lKnob.style.top  = '';
+      try { leftZone.releasePointerCapture(e.pointerId); } catch(_) {}
+    }
+    leftZone.addEventListener('pointerup', endJoy, {passive:false});
+    leftZone.addEventListener('pointercancel', endJoy, {passive:false});
+    leftZone.addEventListener('lostpointercapture', endJoy, {passive:false});
+
+    // Blicksteuerung (rechter Bereich)
+    let lookActive=false, lookId=-1, lastX=0, lastY=0, yawAng=0, pitchAng=0;
+    rightZone.addEventListener('pointerdown', e=>{
+      if (lookActive) return;
+      lookActive=true; lookId=e.pointerId; lastX=e.clientX; lastY=e.clientY; rightZone.setPointerCapture(lookId);
+    }, {passive:false});
+    rightZone.addEventListener('pointermove', e=>{
+      if(!lookActive || e.pointerId!==lookId) return;
+      const dx = e.clientX-lastX, dy = e.clientY-lastY;
+      lastX=e.clientX; lastY=e.clientY;
+      const SENS = 0.18 * (renderer.getPixelRatio()/DPR_CAP); // scale mit DPR
+      yawAng -= dx * SENS * 0.01 * Math.PI;
+      pitchAng -= dy * SENS * 0.01 * Math.PI;
+      pitchAng = Math.max(-Math.PI/2+0.1, Math.min(Math.PI/2-0.1, pitchAng));
+    }, {passive:false});
+    function endLook(e){
+      if(!lookActive || (e && e.pointerId!==lookId)) return;
+      lookActive=false; rightZone.releasePointerCapture(lookId);
+    }
+    rightZone.addEventListener('pointerup', endLook, {passive:false});
+    rightZone.addEventListener('pointercancel', endLook, {passive:false});
+
+    // Desktop-Fallback (WASD + Maus ziehen)
+    const keys = new Set();
+    window.addEventListener('keydown', e => keys.add(e.code));
+    window.addEventListener('keyup', e => keys.delete(e.code));
+    let mouseDown=false, mx=0, my=0;
+    window.addEventListener('mousedown', e=>{mouseDown=true; mx=e.clientX; my=e.clientY;});
+    window.addEventListener('mousemove', e=>{
+      if(!mouseDown) return;
+      const dx = e.clientX - mx, dy = e.clientY - my; mx=e.clientX; my=e.clientY;
+      yawAng -= dx * 0.0025; pitchAng -= dy * 0.0025; 
+      pitchAng = Math.max(-Math.PI/2+0.1, Math.min(Math.PI/2-0.1, pitchAng));
+    });
+    window.addEventListener('mouseup', ()=>mouseDown=false);
+
+    // ---------- Game-Loop ----------
+    const clock = new THREE.Clock();
+    const scoreEl = document.getElementById('score');
+    const fpsEl = document.getElementById('fps');
+    const logEl = document.getElementById('log');
+    const hintEl = document.getElementById('centerHint');
+    let collected = 0, frames=0, tFps=0;
+
+    // Startposition
+    player.position.set(0, 0, 0);
+
+    function addLog(line){
+      const p = document.createElement('div'); p.textContent = line;
+      logEl.prepend(p);
+      // begrenzen
+      while (logEl.childElementCount > 8) logEl.removeChild(logEl.lastChild);
+    }
+
+    addLog("Finde und sammle deine Fragmente ein.");
+    addLog("Alles anonym. Nur die Essenz zählt.");
+
+    function animate(){
+      requestAnimationFrame(animate);
+      const dt = Math.min(0.05, clock.getDelta());
+
+      // FPS
+      frames++; tFps += dt;
+      if (tFps >= 0.5) { fpsEl.textContent = (frames/tFps*1).toFixed(0)+" fps"; frames=0; tFps=0; }
+
+      // Kamera-Rig anwenden
+      yaw.rotation.y = yawAng;
+      pitch.rotation.x = pitchAng;
+
+      // Bewegung
+      let mx=0, mz=0;
+      if (joyActive){
+        const nx = Math.max(-1, Math.min(1, joyDx / JOY_R));
+        const ny = Math.max(-1, Math.min(1, joyDy / JOY_R));
+        // Joystick: nach oben = vorwärts (z-)
+        mx += nx; mz += ny;
+      }
+      // Desktop WASD
+      if (keys.has('KeyA')) mx -= 1;
+      if (keys.has('KeyD')) mx += 1;
+      if (keys.has('KeyW')) mz -= 1;
+      if (keys.has('KeyS')) mz += 1;
+
+      if (mx || mz){
+        const v = new THREE.Vector3(mx, 0, mz);
+        v.normalize();
+        const speed = 4.0; // m/s
+        v.applyAxisAngle(new THREE.Vector3(0,1,0), yawAng);
+        player.position.addScaledVector(v, speed * dt);
+        hintEl.style.display = 'none';
+      }
+
+      // Fragmente schweben & einsammeln
+      const ppos = player.position;
+      for (const f of fragments){
+        if (f.userData.collected) continue;
+        // Idle-Animation
+        const up = Math.sin(clock.elapsedTime*1.3 + f.userData.yPhase) * 0.08;
+        f.position.y = up;
+        // Facing billboard
+        f.children[0].lookAt(camera.getWorldPosition(new THREE.Vector3()));
+        // Abstand
+        const d = f.position.distanceTo(ppos);
+        if (d < 1.2){
+          f.userData.collected = true;
+          f.visible = false;
+          collected++;
+          scoreEl.textContent = collected.toString();
+          addLog("Fragment aufgenommen: " + f.userData.text.replace(/^[„"]|[”"]$/g,''));
+        }
+      }
+
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    // ---------- Resize ----------
+    window.addEventListener('resize', ()=>{
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      camera.aspect = window.innerWidth/window.innerHeight;
+      camera.updateProjectionMatrix();
+    });
+
+    // Android Chrome: erst bei erster Berührung Overlay ausblenden
+    window.addEventListener('pointerdown', ()=>{ hintEl.style.display='none'; }, {once:true});
+
+  </script>
+</body>
+</html>
