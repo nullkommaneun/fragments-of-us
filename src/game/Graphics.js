@@ -1,6 +1,6 @@
 // src/game/Graphics.js
 let THREE, renderer, scene, camera, rafId, lastT = 0;
-let ctxRef, worldApi;
+let ctxRef, worldApi, post;
 
 function setBackground(container) {
   container.style.background = `linear-gradient(180deg,#0e1220 0%, #101528 45%, #0b0f1a 100%)`;
@@ -13,20 +13,51 @@ export async function init(ctx) {
   renderer = new THREE.WebGLRenderer({ antialias: ctx.caps.antialias, alpha: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(ctx.caps.pixelRatio);
   renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.05;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
   ctx.root.appendChild(renderer.domElement);
   setBackground(ctx.root);
 
   scene = new THREE.Scene();
-  // etwas weniger Dunst, damit Details am Dach sichtbar bleiben
   scene.fog = new THREE.FogExp2(0x0e1220, 0.022);
 
   const aspect = window.innerWidth / window.innerHeight;
   camera = new THREE.PerspectiveCamera(70, aspect, 0.1, 1000);
-  // Start leicht rechts vorn, Blick Richtung Laden
   camera.position.set(3.8, 1.8, 6.5);
 
-  // Welt (nur Diorama + Ramen-Bar)
+  // Welt (Diorama + Ramen-Bar)
   worldApi = await ctx.modules.World.init(ctx, THREE, scene);
+
+  // Environment (HDR) – optional
+  try {
+    const env = await ctx.modules.Assets.loadHDR('./public/env/ramen_bar_night_1k.hdr', THREE, renderer);
+    if (env) scene.environment = env; // reflections/IBL; Hintergrund bleibt unser Gradient
+  } catch {}
+
+  // Schatten selektiv: DirectionalLight + Geometrien
+  scene.traverse(o => {
+    if (o.isDirectionalLight) {
+      o.castShadow = true;
+      o.shadow.mapSize.set(ctx.caps.quality==='high'?2048:1024, ctx.caps.quality==='high'?2048:1024);
+      o.shadow.camera.near = 0.5; o.shadow.camera.far = 50;
+      o.shadow.bias = -0.0005;
+    }
+    if (o.isMesh) {
+      // Emissive Flächen (Laternenpapier) werfen keine Schatten
+      const em = o.material && o.material.emissiveIntensity > 0.4;
+      o.castShadow = !em;
+      o.receiveShadow = true;
+    }
+  });
+
+  // PostFX (FXAA + optional Bloom)
+  if (ctx.modules.PostFX && ctx.caps.quality !== 'low') {
+    post = await ctx.modules.PostFX.initPostFX(ctx, THREE, renderer, scene, camera);
+  }
 
   window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
@@ -41,7 +72,7 @@ function update(t) {
   if (ctxRef?.input) ctxRef.input.tick(dt, camera);
   if (worldApi?.update) worldApi.update(dt);
 
-  // Bereich klein halten (Diorama-Radius ~ 12 m um Zentrum)
+  // Diorama-Grenze
   const r = Math.hypot(camera.position.x, camera.position.z + 1.2);
   if (r > 11.8) {
     const ang = Math.atan2(camera.position.z + 1.2, camera.position.x);
@@ -49,7 +80,7 @@ function update(t) {
     camera.position.z = Math.sin(ang) * 11.8 - 1.2;
   }
 
-  renderer.render(scene, camera);
+  if (post) post.render(); else renderer.render(scene, camera);
   rafId = renderer.setAnimationLoop(update);
 }
 

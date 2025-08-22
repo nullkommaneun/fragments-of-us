@@ -1,5 +1,6 @@
 // src/core/Preflight.js
-// Führt Modul-Ladevorgang + Systemchecks aus und rendert ein übersichtliches Preflight-Panel.
+// Modul-Ladevorgang + Systemchecks + übersichtliches Preflight-Panel.
+// Zeigt Status-Badges, ausführliche Diagnosen und setzt bei Bedarf Scroll-Lock-Fixes.
 
 import { detectCaps } from './Caps.js';
 import { loadModules } from './ModuleLoader.js';
@@ -18,7 +19,7 @@ function detailBlock(title, text) {
   return `<div class="pf__detailBlock"><h3>${title}</h3><pre>${text}</pre></div>`;
 }
 
-// Laufzeit-Fix, wenn Scroll-Lock/Viewport-Policies fehlen (z. B. iOS/Safari-Fall)
+// Laufzeit-Fix, wenn Scroll-/Viewport-Policies fehlen (z. B. iOS/Safari-Fälle)
 function applyScrollLockRuntimeFix() {
   const html = document.documentElement;
   const body = document.body;
@@ -39,14 +40,14 @@ function applyScrollLockRuntimeFix() {
 
 const PF = {
   checks: [
-    // 0) Ist das Stylesheet geladen? (wenn nicht, zeigen wir WARN und arbeiten mit Critical-CSS)
+    // 0) Ist das Stylesheet geladen? (falls nicht: WARN; Critical-CSS springt ein)
     {
       id: 'css', label: 'Stylesheet (styles.css)', required: true,
       run: async () => {
         const link = document.querySelector('link[rel="stylesheet"][href$="styles.css"]');
         let ok = false, detail = '';
         try {
-          ok = !!(link && link.sheet); // geladen?
+          ok = !!(link && link.sheet);
           detail = link ? (link.href + (window.__STYLE_FAIL ? ' · onerror' : '')) : 'link not found';
         } catch (e) {
           detail = 'cannot inspect stylesheet: ' + e;
@@ -108,7 +109,12 @@ const PF = {
         const taOk = [taRoot, taBody, taApp].some(v => (v || '').includes('none'));
 
         const okInitial = okMeta && overflowOk && taOk && obehOk;
-        const diagBefore = { metaViewport: content, okMeta, overflowRoot, overflowBody, overflowOk, supportsOverscrollBehavior: !!supportsOB, obRoot, obBody, obehOk, touchAction: { root: taRoot, body: taBody, app: taApp }, taOk };
+        const diagBefore = {
+          metaViewport: content, okMeta,
+          overflowRoot, overflowBody, overflowOk,
+          supportsOverscrollBehavior: !!supportsOB, obRoot, obBody, obehOk,
+          touchAction: { root: taRoot, body: taBody, app: taApp }, taOk
+        };
 
         if (okInitial) return { ok: true, detail: JSON.stringify(diagBefore, null, 2) };
 
@@ -139,12 +145,25 @@ const PF = {
           }
         };
 
-        // Wenn der Fix greift: als WARN markieren (zeigt „Details unten“), sonst FAIL.
+        // Wenn Fix greift: WARN (zeigt Details unten), sonst FAIL.
         return { ok: okAfter, warn: okAfter, detail: JSON.stringify(diagAfter, null, 2) };
       }
     },
 
-    // 5) Datenquelle erreichbar?
+    // 5) Optional: HDR-Environment vorhanden? (für realistischere PBR-Reflexionen)
+    {
+      id: 'envHDR', label: 'HDR Env Map', required: false,
+      run: async () => {
+        try {
+          const r = await fetch('./public/env/ramen_bar_night_1k.hdr', { cache:'no-store' });
+          return { ok: r.ok, warn: !r.ok, detail: r.ok ? 'found' : 'missing (fallback: gradient)' };
+        } catch (e) {
+          return { ok:false, detail:String(e) };
+        }
+      }
+    },
+
+    // 6) Datenquelle erreichbar?
     {
       id: 'memories', label: 'Daten: memories.json', required: true,
       run: async () => {
@@ -161,7 +180,9 @@ const PF = {
     Graphics: { path: '../game/Graphics.js', required: true },
     Input:    { path: '../game/Input.js',    required: true },
     UI:       { path: '../game/UI.js',       required: true },
-    World:    { path: '../game/World.js',    required: true } // neue Spielwelt (Dorf + Ramenbar)
+    World:    { path: '../game/World.js',    required: true },
+    Assets:   { path: '../core/Assets.js',   required: true },   // HDR/KTX2
+    PostFX:   { path: '../game/PostFX.js',   required: false }   // FXAA/Bloom (optional)
   }
 };
 
@@ -227,20 +248,7 @@ export async function runPreflight(ctx) {
 
   if (!hardFail) {
     $start.disabled = false;
-  } else {
-    $retry.style.display = '';
-  }
-
-  return { ok: !hardFail };
-
-// ... (Datei unverändert wie zuletzt gesendet – nur der Abschlussblock unten wurde erweitert)
-
-  $sum.innerHTML = summary.join('');
-  $det.innerHTML = details.join('');
-
-  if (!hardFail) {
-    $start.disabled = false;
-    // NEU: Start-Button in der scrollbaren Karte sicher sichtbar machen
+    // Start-Button in der scrollbaren Karte sicher sichtbar machen
     try { $start.scrollIntoView({ block: 'end', behavior: 'smooth' }); } catch {}
   } else {
     $retry.style.display = '';
