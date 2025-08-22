@@ -232,4 +232,19 @@ export async function runPreflight(ctx) {
   }
 
   return { ok: !hardFail };
+
+// ... (Datei unverändert wie zuletzt gesendet – nur der Abschlussblock unten wurde erweitert)
+
+  $sum.innerHTML = summary.join('');
+  $det.innerHTML = details.join('');
+
+  if (!hardFail) {
+    $start.disabled = false;
+    // NEU: Start-Button in der scrollbaren Karte sicher sichtbar machen
+    try { $start.scrollIntoView({ block: 'end', behavior: 'smooth' }); } catch {}
+  } else {
+    $retry.style.display = '';
+  }
+
+  return { ok: !hardFail };
 }
