@@ -1,36 +1,57 @@
 * { box-sizing: border-box; }
 html, body, .app { height: 100%; margin: 0; }
-body { font: 15px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:#0f0f16; color:#e6e8f0; }
+body {
+  font: 15px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  background:#0f0f16; color:#e6e8f0;
+  /* Seite fixieren, kein Seiten-Scroll */
+  position: fixed; inset: 0; width: 100%; overflow: hidden;
+  overscroll-behavior: none;
+}
+.app { position: relative; overflow: hidden; }
+
+/* Canvas füllt stets die volle Geräthöhe; Touch-Gesten steuert das Spiel, nicht der Browser */
+canvas { position: absolute; inset: 0; width: 100%; height: 100dvh; outline: none; touch-action: none; }
+
+/* HUD */
+.hud { position: absolute; top: env(safe-area-inset-top,12px); right: 12px; display: flex; gap: 8px; }
+.hud__chip {
+  background: rgba(20,24,36,.6); backdrop-filter: blur(6px);
+  border:1px solid rgba(255,255,255,.08); padding:6px 10px; border-radius: 10px; font-size: 12px;
+}
+
+/* Preflight */
 :root {
   --bg1:#0f0f16; --bg2:#121826;
   --ok:#2ecc71; --warn:#f1c40f; --fail:#e74c3c; --muted:#7f8fa6; --accent:#7dd3fc;
 }
-.app { position: relative; overflow: hidden; }
-canvas { position: absolute; inset: 0; width: 100%; height: 100%; outline: none; touch-action:none; }
-
-.hud { position: absolute; top: env(safe-area-inset-top,12px); right: 12px; display: flex; gap: 8px; }
-.hud__chip { background: rgba(20,24,36,.6); backdrop-filter: blur(6px);
-  border:1px solid rgba(255,255,255,.08); padding:6px 10px; border-radius: 10px; font-size: 12px; }
-
-.pf { position: absolute; inset: 0; display: grid; place-items: center;
+.pf {
+  position: absolute; inset: 0; display: grid; place-items: center;
   background: radial-gradient(130% 100% at 50% 0%, rgba(125,211,252,.07), rgba(0,0,0,.6)),
               linear-gradient(180deg, var(--bg2), var(--bg1));
 }
-.pf__card { width: min(880px, 92vw); background: rgba(15,18,30,.7); border:1px solid rgba(255,255,255,.08);
-  border-radius: 16px; padding: 18px 18px 14px; backdrop-filter: blur(10px); }
+.pf__card {
+  width: min(880px, 92vw); background: rgba(15,18,30,.7); border:1px solid rgba(255,255,255,.08);
+  border-radius: 16px; padding: 18px 18px 14px; backdrop-filter: blur(10px);
+}
 h1 { margin: 0 0 8px 0; font-size: 24px; letter-spacing: .2px; }
 .pf__subtitle { margin: 0 0 12px 0; color: var(--muted); }
-.pf__summary, .pf__details { background: rgba(255,255,255,.03); border:1px solid rgba(255,255,255,.06);
-  border-radius: 12px; padding: 12px; max-height: 38vh; overflow: auto; }
+.pf__summary, .pf__details {
+  background: rgba(255,255,255,.03); border:1px solid rgba(255,255,255,.06);
+  border-radius: 12px; padding: 12px; max-height: 38vh; overflow: auto;
+  /* Preflight-Listen sollen weiterhin scrollbar bleiben */
+  touch-action: pan-y; overscroll-behavior: contain;
+}
 .pf__summary { margin-bottom: 10px; }
-.pf__row { display: grid; grid-template-columns: 140px 1fr auto; gap: 10px; align-items: center; padding: 6px 0; border-bottom: 1px dashed rgba(255,255,255,.06); }
+.pf__row { display: grid; grid-template-columns: 160px 1fr auto; gap: 10px; align-items: center; padding: 6px 0; border-bottom: 1px dashed rgba(255,255,255,.06); }
 .pf__row:last-child { border-bottom: none; }
 .pf__label { color:#b7c2d1; white-space: nowrap; }
 .pf__status { font-weight: 600; font-size: 12px; }
 .ok { color: var(--ok); } .warn{ color:var(--warn);} .fail{ color:var(--fail);}
 .pf__err { color:#ffb4b4; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; white-space: pre-wrap; }
-.btn { appearance: none; border: 0; border-radius: 10px; background: linear-gradient(180deg,#2a7cf7,#2155c9);
-  color: white; padding: 10px 14px; font-weight: 600; cursor: pointer; }
+.btn {
+  appearance: none; border: 0; border-radius: 10px; background: linear-gradient(180deg,#2a7cf7,#2155c9);
+  color: white; padding: 10px 14px; font-weight: 600; cursor: pointer;
+}
 .btn[disabled]{ opacity:.6; cursor:not-allowed; }
 .btn--ghost { background: transparent; border:1px solid rgba(255,255,255,.2); }
 .pf__actions { margin-top: 10px; display: flex; gap: 8px; }
