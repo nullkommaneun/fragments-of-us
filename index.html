@@ -6,7 +6,31 @@
         content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <meta name="theme-color" content="#0f0f16" />
   <title>Memory Walk — Proto</title>
-  <link rel="stylesheet" href="./styles.css" />
+
+  <!-- Critical-CSS (Fallback). Wird entfernt, sobald styles.css geladen ist. -->
+  <style id="pf-critical">
+    html,body,#app{height:100%;margin:0;}
+    body{background:#0f0f16;color:#e6e8f0;font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;}
+    .pf{position:absolute;inset:0;display:grid;place-items:center;background:linear-gradient(180deg,#121826,#0f0f16);}
+    .pf__card{width:min(880px,92vw);background:rgba(15,18,30,.9);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:18px 18px 14px}
+    .pf__summary,.pf__details{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:12px;max-height:38vh;overflow:auto;margin-top:8px}
+    .pf__summary{margin-top:0}
+    .pf__row{display:grid;grid-template-columns:200px 140px 1fr;gap:10px;align-items:center;padding:6px 0;border-bottom:1px dashed rgba(255,255,255,.08)}
+    .pf__row:last-child{border-bottom:none}
+    .pf__status{display:inline-flex;align-items:center;gap:6px;justify-content:center;padding:4px 8px;border-radius:999px;font-weight:700;font-size:12px;border:1px solid transparent;width:fit-content}
+    .pf__status.ok{color:#1f7a43;background:rgba(46,204,113,.15);border-color:rgba(46,204,113,.35)}
+    .pf__status.warn{color:#8a6d1c;background:rgba(241,196,15,.15);border-color:rgba(241,196,15,.35)}
+    .pf__status.fail{color:#a83a3a;background:rgba(231,76,60,.15);border-color:rgba(231,76,60,.35)}
+    .pf__detailBlock{color:#cfd7e6;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;white-space:pre-wrap;background:rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:10px;margin-top:8px}
+    .btn{appearance:none;border:0;border-radius:10px;background:linear-gradient(180deg,#2a7cf7,#2155c9);color:#fff;padding:10px 14px;font-weight:600;cursor:pointer}
+    .btn[disabled]{opacity:.6;cursor:not-allowed}.btn--ghost{background:transparent;border:1px solid rgba(255,255,255,.2)}
+    .pf__actions{margin-top:10px;display:flex;gap:8px}
+  </style>
+
+  <!-- Haupt-CSS; entfernt das Critical-CSS bei Erfolg -->
+  <link rel="stylesheet" href="./styles.css"
+        onload="document.getElementById('pf-critical')?.remove()"
+        onerror="window.__STYLE_FAIL = true" />
 </head>
 <body>
   <div id="app" class="app">
