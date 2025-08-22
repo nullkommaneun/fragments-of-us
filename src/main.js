@@ -1,4 +1,4 @@
-// src/main.js — robuster Bootstrap mit Diagnose, wenn Preflight nicht lädt
+// src/main.js — robuster Bootstrap mit klarer Diagnose, wenn Preflight nicht lädt
 
 const ctx = {
   root: document.getElementById('app'),
@@ -35,45 +35,68 @@ function pfRow(label, status = 'fail', detail = '') {
 function pfDetail(title, text) {
   return `<div class="pf__detailBlock"><h3>${title}</h3><pre>${text}</pre></div>`;
 }
-function showFatal(title, err) {
+function showFatal(title, diagnosticText) {
   $sum.innerHTML = pfRow(title, 'fail', 'Siehe Details unten');
-  $det.innerHTML = pfDetail('Diagnose', (err && (err.stack || err.message || String(err))) || 'Unbekannter Fehler');
+  $det.innerHTML = pfDetail('Diagnose', diagnosticText);
   $start.disabled = true;
   $retry.style.display = '';
 }
 
+// erzeugt robuste Kandidaten-URLs für Preflight relativ zu main.js & Seite
+function getPreflightCandidates() {
+  const relFromMain = new URL('./core/Preflight.js', import.meta.url).href;
+  const relFromPage = new URL('src/core/Preflight.js', location.href).href;
+  const relAltCase  = new URL('src/core/preflight.js', location.href).href; // falls Dateiname versehentlich klein geschrieben wurde
+  return [relFromMain, relFromPage, relAltCase];
+}
+
+async function tryFetch(url) {
+  try {
+    const r = await fetch(url + (url.includes('?') ? '&' : '?') + 'v=' + Date.now(), { cache: 'no-store' });
+    return { ok: r.ok, status: r.status, statusText: r.statusText, url };
+  } catch (e) {
+    return { ok: false, status: 0, statusText: String(e), url };
+  }
+}
+
 async function loadPreflightSafe() {
-  const path = './core/Preflight.js';
-  // 1) Existenz/Erreichbarkeit prüfen (Case-Sensitivity auf GH Pages!)
-  try {
-    const r = await fetch(path + '?v=' + Date.now(), { cache: 'no-store' });
-    if (!r.ok) throw new Error(`HTTP ${r.status} – ${r.statusText}`);
-  } catch (e) {
-    throw new Error(`Preflight-Datei nicht erreichbar (${path}).\n${e?.message || e}`);
-  }
-  // 2) Modul dynamisch importieren (mit Cache-Bust)
-  try {
-    const mod = await import(path + '?v=' + Date.now());
-    if (!mod || typeof mod.runPreflight !== 'function') {
-      throw new Error('runPreflight() nicht exportiert.');
+  const candidates = getPreflightCandidates();
+  const log = [];
+
+  // 1) Erreichbarkeit testen
+  for (const url of candidates) {
+    const res = await tryFetch(url);
+    log.push(`HEAD ${res.ok ? 'OK' : 'FAIL'} ${res.status} ${res.statusText} — ${res.url}`);
+    if (!res.ok) continue;
+
+    // 2) dynamisch importieren (mit Cache-Bust)
+    const bust = (url.includes('?') ? '&' : '?') + 'v=' + Date.now();
+    try {
+      const mod = await import(url + bust);
+      if (mod && typeof mod.runPreflight === 'function') {
+        return { run: mod.runPreflight, picked: url, log };
+      } else {
+        log.push(`Import OK, aber runPreflight() nicht gefunden — ${url}`);
+      }
+    } catch (e) {
+      log.push(`Import-Fehler — ${url}\n${e?.stack || e?.message || String(e)}`);
     }
-    return mod.runPreflight;
-  } catch (e) {
-    throw new Error(`Preflight-Import fehlgeschlagen (${path}).\n${e?.message || e}`);
   }
+
+  throw new Error(log.join('\n'));
 }
 
 (async () => {
   try {
-    // Hinweis in die Box, damit sichtbar ist, dass etwas passiert
     $sum.innerHTML = pfRow('Bootstrap', 'ok', 'Lade Preflight…');
 
-    const runPreflight = await loadPreflightSafe();
+    const { run, picked, log } = await loadPreflightSafe();
+    $det.innerHTML = pfDetail('Import-Pfad gewählt', picked) + (log.length ? pfDetail('Protokoll', log.join('\n')) : '');
 
     // Preflight ausführen
-    await runPreflight(ctx);
+    await run(ctx);
 
-    // Start/Retry binden (erst nach erfolgreichem Preflight sinnvoll)
+    // Start/Retry binden
     $start.addEventListener('click', async () => {
       try {
         await ctx.modules.State.init(ctx);
@@ -86,13 +109,14 @@ async function loadPreflightSafe() {
 
         ctx.modules.Graphics.start();
       } catch (err) {
-        showFatal('Engine-Start fehlgeschlagen', err);
+        showFatal('Engine-Start fehlgeschlagen', err?.stack || err?.message || String(err));
       }
     });
 
     $retry.addEventListener('click', () => location.reload());
 
   } catch (err) {
-    showFatal('Preflight konnte nicht geladen werden', err);
+    showFatal('Preflight konnte nicht geladen werden',
+      (err && (err.stack || err.message)) ? (err.stack || err.message) : String(err));
   }
 })();
