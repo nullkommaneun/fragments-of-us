@@ -150,15 +150,24 @@ const PF = {
       }
     },
 
-    // 5) Optional: HDR-Environment vorhanden? (für realistischere PBR-Reflexionen)
+    // 5) HDR-Environment (OK auch ohne Datei, sofern Fallback verfügbar)
     {
       id: 'envHDR', label: 'HDR Env Map', required: false,
       run: async () => {
         try {
+          // Datei vorhanden?
           const r = await fetch('./public/env/ramen_bar_night_1k.hdr', { cache:'no-store' });
-          return { ok: r.ok, warn: !r.ok, detail: r.ok ? 'found' : 'missing (fallback: gradient)' };
+          if (r.ok) return { ok: true, detail: 'found' };
+
+          // Fallback verfügbar?
+          try {
+            await import('three/addons/environments/RoomEnvironment.js');
+            return { ok: true, detail: 'fallback: RoomEnvironment (no HDR file)' };
+          } catch (e) {
+            return { ok: false, detail: 'HDR missing & no RoomEnvironment: ' + String(e) };
+          }
         } catch (e) {
-          return { ok:false, detail:String(e) };
+          return { ok: false, detail: String(e) };
         }
       }
     },
@@ -181,8 +190,8 @@ const PF = {
     Input:    { path: '../game/Input.js',    required: true },
     UI:       { path: '../game/UI.js',       required: true },
     World:    { path: '../game/World.js',    required: true },
-    Assets:   { path: '../core/Assets.js',   required: true },   // HDR/KTX2
-    PostFX:   { path: '../game/PostFX.js',   required: false }   // FXAA/Bloom (optional)
+    Assets:   { path: '../core/Assets.js',   required: true },
+    PostFX:   { path: '../game/PostFX.js',   required: false }
   }
 };
 
@@ -195,7 +204,7 @@ export async function runPreflight(ctx) {
   const summary = [];
   const details = [];
 
-  // 1) Capabilities erfassen
+  // 1) Capabilities
   ctx.caps = detectCaps();
   summary.push(row(
     'Geräteprofil',
@@ -216,11 +225,11 @@ export async function runPreflight(ctx) {
     return { ok: false };
   }
 
-  // 3) Checks ausführen
+  // 3) Checks
   let hardFail = false;
   for (const c of PF.checks) {
     try {
-      const res = await c.run(ctx); // bool oder {ok,warn,detail}
+      const res = await c.run(ctx);
       const ok = typeof res === 'boolean' ? res : !!res.ok;
       let status = ok ? 'ok' : (c.required ? 'fail' : 'warn');
       if (typeof res === 'object' && res.warn && status === 'ok') status = 'warn';
@@ -248,7 +257,6 @@ export async function runPreflight(ctx) {
 
   if (!hardFail) {
     $start.disabled = false;
-    // Start-Button in der scrollbaren Karte sicher sichtbar machen
     try { $start.scrollIntoView({ block: 'end', behavior: 'smooth' }); } catch {}
   } else {
     $retry.style.display = '';

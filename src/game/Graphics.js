@@ -29,16 +29,25 @@ export async function init(ctx) {
   camera = new THREE.PerspectiveCamera(70, aspect, 0.1, 1000);
   camera.position.set(3.8, 1.8, 6.5);
 
-  // Welt (Diorama + Ramen-Bar)
+  // Diorama + Ramen-Bar
   worldApi = await ctx.modules.World.init(ctx, THREE, scene);
 
-  // Environment (HDR) – optional
+  // === Environment Lighting (IBL) ===
+  // 1) Versuche HDR aus public/env/
+  let envTex = null;
   try {
-    const env = await ctx.modules.Assets.loadHDR('./public/env/ramen_bar_night_1k.hdr', THREE, renderer);
-    if (env) scene.environment = env; // reflections/IBL; Hintergrund bleibt unser Gradient
+    envTex = await ctx.modules.Assets.loadHDR('./public/env/ramen_bar_night_1k.hdr', THREE, renderer);
   } catch {}
+  // 2) Fallback: RoomEnvironment (ohne externes Asset)
+  if (!envTex) {
+    const { RoomEnvironment } = await import('three/addons/environments/RoomEnvironment.js');
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    pmrem.dispose();
+  }
+  scene.environment = envTex;
 
-  // Schatten selektiv: DirectionalLight + Geometrien
+  // Schatten selektiv
   scene.traverse(o => {
     if (o.isDirectionalLight) {
       o.castShadow = true;
@@ -47,14 +56,13 @@ export async function init(ctx) {
       o.shadow.bias = -0.0005;
     }
     if (o.isMesh) {
-      // Emissive Flächen (Laternenpapier) werfen keine Schatten
       const em = o.material && o.material.emissiveIntensity > 0.4;
       o.castShadow = !em;
       o.receiveShadow = true;
     }
   });
 
-  // PostFX (FXAA + optional Bloom)
+  // PostFX: FXAA (+ Bloom bei high)
   if (ctx.modules.PostFX && ctx.caps.quality !== 'low') {
     post = await ctx.modules.PostFX.initPostFX(ctx, THREE, renderer, scene, camera);
   }
